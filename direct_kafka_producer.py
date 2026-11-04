@@ -5,6 +5,9 @@ import time
 import argparse
 from kafka import KafkaProducer
 import config
+from measurement.msglog import MsgLog  # [C-log]
+
+LOG = MsgLog("direct")  # [C-log]
 
 parser = argparse.ArgumentParser(description="Direct Kafka Producer Workload")
 parser.add_argument("--kafka-brokers", type=str, default=config.KAFKA_BOOTSTRAP_SERVERS[0])
@@ -44,6 +47,7 @@ async def simulate_direct_device(device_id: str, domain: str, zone_id: str, seed
 
         topic = f"telemetry-{zone_id}"
         producer.send(topic, key=device_id.encode('utf-8'), value=payload)
+        LOG.write(device_id, seq, zone_id, len(json.dumps(payload)), payload["ts_device"])  # [C-log]
         
         sleep_time = 0.2 if (is_burst_time and in_burst_zone) else rng.uniform(1.0, 2.5)
         await asyncio.sleep(sleep_time)
@@ -64,4 +68,4 @@ async def main():
     await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())

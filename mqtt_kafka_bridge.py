@@ -4,6 +4,9 @@ import argparse
 from paho.mqtt import client as mqtt_client
 from kafka import KafkaProducer
 import config
+from measurement.msglog import MsgLog  # [C-log]
+
+LOG = MsgLog("bridge")  # [C-log]
 
 parser = argparse.ArgumentParser(description="MQTT to Kafka Bridge")
 parser.add_argument("--mqtt-host", type=str, default=config.MQTT_BROKER)
@@ -22,6 +25,7 @@ def on_message(client, userdata, msg):
     try:
         data = json.loads(msg.payload.decode('utf-8'))
         data['ts_bridge'] = ts_bridge
+        LOG.write(data.get('device_id'), data.get('seq'), ts_bridge, int(msg.dup))  # [C-log]
         
         kafka_topic = f"telemetry-{data.get('zone_id', 'default')}"
         producer.send(kafka_topic, key=data['device_id'].encode('utf-8'), value=data)
@@ -38,4 +42,4 @@ def run_bridge():
     client.loop_forever()
 
 if __name__ == "__main__":
-    run_bridge()
+    run_bridge()

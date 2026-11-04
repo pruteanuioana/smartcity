@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 from kafka import KafkaConsumer
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
+from measurement.msglog import MsgLog  # [C-log]
+
+LOG = MsgLog("processor")  # [C-log]
+
+log_row = LOG.write_kafka  # [C-log] log_row(message, data, ts_consumed, ts_written)
 
 # Kafka - cei 3 brokeri
 BOOTSTRAP_SERVERS = [
@@ -61,6 +66,7 @@ windows = defaultdict(
 print("Stream Processor started!", flush=True)
 
 for message in consumer:
+    ts_consumed = time.time()  # [C-log]
     data = message.value
 
     zone = data.get("zone_id")
@@ -70,9 +76,11 @@ for message in consumer:
     timestamp = data.get("ts_device")
 
     if not zone or not domain or timestamp is None:
+        log_row(message, data, ts_consumed, None)  # [C-log] consumed but not written
         continue
 
     if not isinstance(value, (int, float)):
+        log_row(message, data, ts_consumed, None)  # [C-log] consumed but not written
         continue
 
     # 1. Salvam mesajul individual in InfluxDB
@@ -95,6 +103,7 @@ for message in consumer:
         bucket=INFLUX_BUCKET,
         record=raw_point,
     )
+    log_row(message, data, ts_consumed, time.time())  # [C-log] ts_written
 
     print(
         f"[INFLUX RAW] {zone} | {domain} | {value}",

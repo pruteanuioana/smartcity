@@ -6,6 +6,9 @@ import argparse
 import sys
 from aiomqtt import Client
 import config
+from measurement.msglog import MsgLog  # [C-log]
+
+LOG = MsgLog("publisher")  # [C-log]
 
 # Rezolvare pentru eroarea `NotImplementedError` pe Windows cu Python 3.14
 if sys.platform == "win32":
@@ -42,6 +45,7 @@ async def simulate_device(client, device_id: str, domain: str, zone_id: str, see
         }
 
         await client.publish(topic, json.dumps(payload), qos=config.DEFAULT_QOS)
+        LOG.write(device_id, seq, zone_id, len(json.dumps(payload)), payload["ts_device"])  # [C-log]
 
         print(f"[SENT] {topic} -> seq:{seq} | ts:{payload['ts_device']}")
         
@@ -67,4 +71,4 @@ async def main():
         await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())

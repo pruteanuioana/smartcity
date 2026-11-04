@@ -1,0 +1,46 @@
+# Owner: C (measurement). Docker Compose merges this file automatically with
+# compose.yaml (B's file) - B's file stays untouched.
+# It adds: the ./logs bind-mount + RUN_ID to every Python component,
+#          parameterised devices/seed for the generators,
+#          the `lag` sampler service (only with --profile measure).
+
+x-measure-env: &measure-env
+  LOG_DIR: /app/logs
+  RUN_ID: ${RUN_ID:-dev}
+  MSGLOG: "1"
+
+services:
+  publisher:
+    command: ["python", "publisher.py", "--broker", "mqtt",
+              "--num-devices", "${DEVICES:-5}", "--seed", "${SEED:-42}"]
+    environment:
+      <<: *measure-env
+      PYTHONHASHSEED: "0"        # hash(device_id) in the generator must be the same every run
+    cap_add: [NET_ADMIN]         # needed so entrypoint.sh can apply tc netem (agree with A)
+    volumes: ["./logs:/app/logs"]
+
+  direct:
+    command: ["python", "direct_kafka_producer.py",
+              "--kafka-brokers", "kafka:29092,kafka2:29092,kafka3:29092",
+              "--num-devices", "${DEVICES:-5}", "--seed", "${SEED:-42}"]
+    environment:
+      <<: *measure-env
+      PYTHONHASHSEED: "0"
+    cap_add: [NET_ADMIN]
+    volumes: ["./logs:/app/logs"]
+
+  bridge:
+    environment: *measure-env
+    volumes: ["./logs:/app/logs"]
+
+  processor:
+    environment: *measure-env
+    volumes: ["./logs:/app/logs"]
+
+  lag:
+    build: .
+    profiles: ["measure"]
+    command: ["python", "-m", "measurement.lag_sampler"]
+    environment: *measure-env
+    volumes: ["./logs:/app/logs"]
+    depends_on: [kafka, kafka2, kafka3]

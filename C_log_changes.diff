@@ -1,0 +1,126 @@
+--- proj/publisher.py	2026-11-03 16:51:58.000000000 +0200
++++ kit/publisher.py	2026-11-04 20:25:32.958991265 +0200
+@@ -6,6 +6,9 @@
+ import sys
+ from aiomqtt import Client
+ import config
++from measurement.msglog import MsgLog  # [C-log]
++
++LOG = MsgLog("publisher")  # [C-log]
+ 
+ # Rezolvare pentru eroarea `NotImplementedError` pe Windows cu Python 3.14
+ if sys.platform == "win32":
+@@ -42,6 +45,7 @@
+         }
+ 
+         await client.publish(topic, json.dumps(payload), qos=config.DEFAULT_QOS)
++        LOG.write(device_id, seq, zone_id, len(json.dumps(payload)), payload["ts_device"])  # [C-log]
+ 
+         print(f"[SENT] {topic} -> seq:{seq} | ts:{payload['ts_device']}")
+         
+@@ -67,4 +71,4 @@
+         await asyncio.gather(*tasks)
+ 
+ if __name__ == "__main__":
+-    asyncio.run(main())
+\ No newline at end of file
++    asyncio.run(main())
+\ No newline at end of file
+--- proj/mqtt_kafka_bridge.py	2026-11-03 16:51:58.000000000 +0200
++++ kit/mqtt_kafka_bridge.py	2026-11-04 19:26:57.281313291 +0200
+@@ -4,6 +4,9 @@
+ from paho.mqtt import client as mqtt_client
+ from kafka import KafkaProducer
+ import config
++from measurement.msglog import MsgLog  # [C-log]
++
++LOG = MsgLog("bridge")  # [C-log]
+ 
+ parser = argparse.ArgumentParser(description="MQTT to Kafka Bridge")
+ parser.add_argument("--mqtt-host", type=str, default=config.MQTT_BROKER)
+@@ -22,6 +25,7 @@
+     try:
+         data = json.loads(msg.payload.decode('utf-8'))
+         data['ts_bridge'] = ts_bridge
++        LOG.write(data.get('device_id'), data.get('seq'), ts_bridge, int(msg.dup))  # [C-log]
+         
+         kafka_topic = f"telemetry-{data.get('zone_id', 'default')}"
+         producer.send(kafka_topic, key=data['device_id'].encode('utf-8'), value=data)
+@@ -38,4 +42,4 @@
+     client.loop_forever()
+ 
+ if __name__ == "__main__":
+-    run_bridge()
+\ No newline at end of file
++    run_bridge()
+\ No newline at end of file
+--- proj/direct_kafka_producer.py	2026-11-03 16:51:58.000000000 +0200
++++ kit/direct_kafka_producer.py	2026-11-04 20:25:32.959256796 +0200
+@@ -5,6 +5,9 @@
+ import argparse
+ from kafka import KafkaProducer
+ import config
++from measurement.msglog import MsgLog  # [C-log]
++
++LOG = MsgLog("direct")  # [C-log]
+ 
+ parser = argparse.ArgumentParser(description="Direct Kafka Producer Workload")
+ parser.add_argument("--kafka-brokers", type=str, default=config.KAFKA_BOOTSTRAP_SERVERS[0])
+@@ -44,6 +47,7 @@
+ 
+         topic = f"telemetry-{zone_id}"
+         producer.send(topic, key=device_id.encode('utf-8'), value=payload)
++        LOG.write(device_id, seq, zone_id, len(json.dumps(payload)), payload["ts_device"])  # [C-log]
+         
+         sleep_time = 0.2 if (is_burst_time and in_burst_zone) else rng.uniform(1.0, 2.5)
+         await asyncio.sleep(sleep_time)
+@@ -64,4 +68,4 @@
+     await asyncio.gather(*tasks)
+ 
+ if __name__ == "__main__":
+-    asyncio.run(main())
+\ No newline at end of file
++    asyncio.run(main())
+\ No newline at end of file
+--- proj/stream_processor.py	2026-11-03 18:00:46.000000000 +0200
++++ kit/stream_processor.py	2026-11-04 20:25:32.959496472 +0200
+@@ -8,6 +8,11 @@
+ from kafka import KafkaConsumer
+ from influxdb_client import InfluxDBClient, Point, WritePrecision
+ from influxdb_client.client.write_api import SYNCHRONOUS
++from measurement.msglog import MsgLog  # [C-log]
++
++LOG = MsgLog("processor")  # [C-log]
++
++log_row = LOG.write_kafka  # [C-log] log_row(message, data, ts_consumed, ts_written)
+ 
+ # Kafka - cei 3 brokeri
+ BOOTSTRAP_SERVERS = [
+@@ -61,6 +66,7 @@
+ print("Stream Processor started!", flush=True)
+ 
+ for message in consumer:
++    ts_consumed = time.time()  # [C-log]
+     data = message.value
+ 
+     zone = data.get("zone_id")
+@@ -70,9 +76,11 @@
+     timestamp = data.get("ts_device")
+ 
+     if not zone or not domain or timestamp is None:
++        log_row(message, data, ts_consumed, None)  # [C-log] consumed but not written
+         continue
+ 
+     if not isinstance(value, (int, float)):
++        log_row(message, data, ts_consumed, None)  # [C-log] consumed but not written
+         continue
+ 
+     # 1. Salvam mesajul individual in InfluxDB
+@@ -95,6 +103,7 @@
+         bucket=INFLUX_BUCKET,
+         record=raw_point,
+     )
++    log_row(message, data, ts_consumed, time.time())  # [C-log] ts_written
+ 
+     print(
+         f"[INFLUX RAW] {zone} | {domain} | {value}",
