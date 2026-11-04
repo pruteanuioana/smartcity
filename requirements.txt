@@ -1,0 +1,5 @@
+aiomqtt>=2.0.0
+paho-mqtt>=1.6.1
+kafka-python-ng>=2.2.2
+fastavro>=1.8.0
+influxdb-client>=1.40.0
